@@ -3,6 +3,7 @@ import pandas as pd
 import os
 from nltk import word_tokenize
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
@@ -65,9 +66,10 @@ def classify_word_count(data, mode="df"):
 
 def a_i():
     data = data_load().sample(frac=1)
-    preds = classify_word_count(data)
-    print("Accuracy:",  accuracy_score(data.labels, preds))
-    print("F1-score: ", f1_score(data.labels, preds))
+    train_set, test_set = train_test_split(data, test_size=0.2) # 20% of those 2000 samples = 400
+    preds = classify_word_count(test_set)
+    print("Accuracy:",  accuracy_score(test_set.labels, preds))
+    print("F1-score: ", f1_score(test_set.labels, preds))
 
 
 def a_ii():
@@ -102,34 +104,33 @@ def a_ii_bad_practice():
 
 def a_iii():
     data = data_load().sample(frac=1)
-    # 80 20 split
-    train_set, test_set = train_test_split(data, test_size=0.2)
     vectorizer = TfidfVectorizer(stop_words='english', min_df=5, max_df=.5, ngram_range=(1, 2), max_features=1000000)
-    vectorizer.fit(train_set.reviews)
 
-    num_splits = 20
-    k_fold_cv = KFold(n_splits=num_splits)
+    num_splits = 5 # deploy, as asked on 400 samples
+    k_fold_cv = KFold(n_splits=num_splits, shuffle=True)
     acc_1 = []
     acc_2 = []
 
-    for idx_train, idx_test in k_fold_cv.split(data):
-        train_X = data.iloc[idx_train].reviews
-        train_X_v = vectorizer.fit_transform(train_X)
-        test_X = data.iloc[idx_test].reviews
-        test_X_v = vectorizer.transform(test_X)
+    num_reps = 4
+    for _ in range(num_reps):
+        for idx_train, idx_test in k_fold_cv.split(data):
+            train_X = data.iloc[idx_train].reviews
+            train_X_v = vectorizer.fit_transform(train_X)
+            test_X = data.iloc[idx_test].reviews
+            test_X_v = vectorizer.transform(test_X)
 
-        train_y = data.iloc[idx_train].labels
-        test_y = data.iloc[idx_test].labels
+            train_y = data.iloc[idx_train].labels
+            test_y = data.iloc[idx_test].labels
 
-        # word counting prediction
-        preds_1 = classify_word_count(test_X, mode="col")
-        acc_1.append(accuracy_score(test_y, preds_1))
+            # word counting prediction
+            preds_1 = classify_word_count(test_X, mode="col")
+            acc_1.append(accuracy_score(test_y, preds_1))
 
-        # logistic regression
-        clf = LogisticRegression()
-        clf.fit(train_X_v, train_y)
-        preds_2 = clf.predict(test_X_v)
-        acc_2.append(accuracy_score(test_y, preds_2))
+            # logistic regression
+            clf = LogisticRegression()
+            clf.fit(train_X_v, train_y)
+            preds_2 = clf.predict(test_X_v)
+            acc_2.append(accuracy_score(test_y, preds_2))
 
     plt.hist(acc_1, alpha=0.5, label='Word counting clf')
     plt.hist(acc_2, alpha=0.5, label='Logistic regression')
@@ -148,6 +149,25 @@ def a_iii():
     T = avg_diff / std_err
     print("t-statistic: ", T)
 
+    n_simulations = 1000
+    signs = [1, -1]
+    simulated_diffs = []
+    for i in range(n_simulations):
+        s = list(np.random.choice(signs, num_reps * num_splits, p=[0.5, 0.5]))
+        new_diffs = [x * y for x, y in zip(pred_diff, s)]
+        sim_avg_diff = sum(new_diffs) / len(new_diffs)
+        simulated_diffs.append(sim_avg_diff)
+
+    kwargs = dict(hist_kws={'alpha': .6}, kde_kws={'linewidth': 2})
+    sns.distplot(simulated_diffs, color="dodgerblue", label="Compact", **kwargs)
+    plt.xlabel('Accuracy Difference')
+    plt.ylabel('Count')
+    plt.axvline(avg_diff, color='r', linestyle='dotted', label="Observed value", linewidth=1.5)
+    plt.legend()
+    plt.show()
+
+    # compute the 0.5% quantile
+    print("0.95% quantile: ", np.quantile(simulated_diffs, 0.95))
 
 
 if __name__ == '__main__':
